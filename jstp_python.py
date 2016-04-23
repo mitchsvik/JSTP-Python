@@ -15,8 +15,8 @@ def deserialize(string, index = 0):
         if string[index] == '\'':
             res, index = __parse_string(string, index)
             result.append(res)
-        elif str.isdigit(string[index]):
-            res, index = __parse_digit(string, index)
+        elif str.isdigit(string[index]) or string[index] == '-':
+            res, index = __parse_number(string, index)
             result.append(res)
         elif string[index] == '[':
             res, index = deserialize(string, index)
@@ -54,8 +54,13 @@ def __parse_string(string, index):
     index+=1
     return (out, index)
 
-def __parse_digit(string, index):
+def __parse_number(string, index):
     out = ''
+
+    is_negative = False
+    if string[index] == '-':
+        is_negative = True
+        index+=1
 
     while str.isdigit(string[index]) or string[index] == '.':
         out += string[index]
@@ -65,4 +70,6 @@ def __parse_digit(string, index):
         res = int(out)
     except ValueError:
         res = float(out)
+    if is_negative:
+        res = 0 - res
     return (res, index)
