@@ -11,6 +11,7 @@ def deserialize(string, index = 0):
         return []
     result = []
     index += 1
+
     while True:
         if string[index] == '\'':
             res, index = __parse_string(string, index)
@@ -119,10 +120,15 @@ def __parse_number(string, index):
     return (res, index)
 
 def __parse_boolean(string, index):
-    if string[index] == 't':
-        return (True, index+4)
+    if string[index: index + 4] == 'true':
+        return (True, index + 4)
+    elif string[index: index + 5] == 'false':
+        return (False, index + 5)
     else:
-        return (False, index+5)
+        return (None, index )
 
 def __parse_undefined(string, index):
-    return (None, index+9)
+    if string[index: index + 9] == 'undefined':
+        return (None, index + 9)
+    else:
+        return (None, index)
