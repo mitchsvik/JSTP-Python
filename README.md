@@ -1,4 +1,4 @@
-# JSTP-Python
-JSTP lib for Python3
+# JSTP on Python
+JavaScript Transport Protocol parser.
 
 Based on https://github.com/metarhia/JSTP
