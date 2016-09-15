@@ -1,146 +1,162 @@
 # JSTP (JavaScript Transport Protocol) library for Python 3
 
+# Some constants
 PACKET_DELIMITER = ',{\f},'
 DELIMITER_LENGTH = len(PACKET_DELIMITER)
 CHUNKS_FIRST = ['[']
 CHUNKS_LAST = [']']
 HANDSHAKE_TIMEOUT = 3000
+PARSE_TIMEOUT = 30
 
 
-def deserialize(string, index=0):
+def deserialize(string):
     """
     Deserialize array of scalar or array of array
     no objects allowed, just arrays and values
     :param string: array serialized to string
-    :param index: current position in string
     :return: deserialized array
     """
-    if string[index] != '[':
-        return []
+    if string[0] != '[' or string[-1] != ']':
+        raise Exception('Incorrect start or end symbols!')
+
+    spliced_parts = split_level(string[1:-1])
     result = []
-    index += 1
 
-    while True:
-        if string[index] == '\'':
-            res, index = __parse_string(string, index)
-        elif str.isdigit(string[index]) or string[index] == '-':
-            res, index = __parse_number(string, index)
-        elif string[index] == 't' or string[index] == 'f':
-            res, index = __parse_boolean(string, index)
-        elif string[index] == 'u':
-            res, index = __parse_undefined(string, index)
-        elif string[index] == '[':
-            res, index = deserialize(string, index)
-        result.append(res)
-
-        if string[index] == ']':
-            index += 1
-            if index == len(string):
-                return result
-            return result, index
-        else:
-            index += 1
+    for element in spliced_parts:
+        res = None
+        if element:
+            if element[0] == '[':
+                res = deserialize(element)
+            elif element[0] == '\'' or element[0] == '\"':
+                res = parse_string(element)
+            elif str.isdigit(element[0]) or element[0] == '-':
+                res = parse_number(element)
+            elif element[0] == 't' or element[0] == 'f':
+                res = parse_boolean(element)
+            elif element[0] == 'u' or element[0] == 'n':
+                res = parse_none(element)
+            result.append(res)
+    return result
 
 
-def parse(string, index=0):
+def parse(string):
     """
     Deserialize string to object, just data: objects and arrays
     no expressions and functions allowed in object definition
     :param string: object serialized to string
-    :param index: current position in string
     :return: deserialized object
     """
-    if string[index] == '{':
-        result = {}
-        type_ = 'dict'
-    elif string[index] == '[':
-        result = []
-        type_ = 'array'
-    else:
-        return {}
-    key = 0
-    index += 1
+    type_ = None
+    if string[0] == '[':
+        if string[-1] == ']':
+            type_ = 'list'
+    elif string[0] == '{':
+        if string[-1] == '}':
+            type_ = 'dict'
+    if type_ is None:
+        raise Exception('Incorrect start or end symbols!')
 
-    while True:
-        if string[index] == '\'':
-            res, index = __parse_string(string, index)
-        elif str.isdigit(string[index]) or string[index] == '-':
-            res, index = __parse_number(string, index)
-        elif string[index] == 't' or string[index] == 'f':
-            res, index = __parse_boolean(string, index)
-        elif string[index] == '[' or string[index] == '{':
-            res, index = parse(string, index)
-        result, key = __append(result, res, type_, key)
-
-        if string[index] == ']' or string[index] == '}':
-            index += 1
-            if index == len(string):
-                return result
-            return result, index
-        else:
-            index += 1
+    spliced_parts = split_level(string[1:-1])
+    keys = []
+    result = []
 
 
-def __skipp_white_spaces(string, index):
-    while string[index] == ' ' or string[index] == '\t':
-        index += 1
-    return index
-
-
-def __append(result, res, type_, key):
     if type_ == 'dict':
-        result[key] = res
-        key += 1
+        tmp = []
+        for element in spliced_parts:
+            dict_index = string.find(':')
+            if dict_index != -1:
+                keys.append(element[:dict_index - 1])
+                tmp.append(element[dict_index:])
+        spliced_parts = tmp
+
+    for element in spliced_parts:
+        res = None
+        if element:
+            if element[0] == '[' or element[0] == '{':
+                res = parse(element)
+            elif element[0] == '\'' or element[0] == '\"':
+                res = parse_string(element)
+            elif str.isdigit(element[0]) or element[0] == '-':
+                res = parse_number(element)
+            elif element[0] == 't' or element[0] == 'f':
+                res = parse_boolean(element)
+            elif element[0] == 'u' or element[0] == 'n':
+                res = parse_none(element)
+            result.append(res)
+
+    if type_ == 'dict':
+        return compress(keys, result)
+    return result
+
+
+def split_level(string):
+    TARGET_SYMBOLS = ['[', '{']
+    MIRROR_SYMBOLS = [']', '}']
+    count = 0;
+    result = []
+    last_slice = 0
+    for i in range(len(string)):
+        if string[i] in TARGET_SYMBOLS:
+            count += 1
+        elif string[i] in MIRROR_SYMBOLS:
+            count -= 1
+        if count == 0 and string[i] == ',':
+            result.append(string[last_slice:i])
+            last_slice = i + 1
+    result.append(string[last_slice:])
+    return result
+
+
+def compress(keys, values):
+    result = {}
+    if len(keys) != len(values):
+        raise Exception('Length of objects must be similar!')
+    for i in range(len(keys)):
+        result[keys[i]] = values[i]
+    return result
+
+
+def parse_string(element):
+    if element[0] == element[-1]:
+        result = element[1:-1]
+        params = [('\\n', '\n'), ('\\\'', '\'')]
+        for param in params:
+            result = result.replace(*param)
+        return result
     else:
-        result.append(res)
-    return result, key
+        raise Exception('First and last string marker does not similar!')
 
 
-def __parse_string(string, index):
-    if string[index] == '\'':
-        end_point = '\''
-    else:
-        end_point = '\"'
-    index += 1
-    start = index
-
-    while string[index] != end_point:
-        index += 1
-    index += 1
-
-    return string[start:index-1], index
-
-
-def __parse_number(string, index):
-    is_negative = False
-    if string[index] == '-':
-        is_negative = True
-        index += 1
-    start = index
-
-    while str.isdigit(string[index]) or string[index] == '.':
-        index += 1
-
+def parse_number(element):
     try:
-        res = int(string[start:index])
+        try:
+            return int(element)
+        except ValueError:
+            return float(element)
     except ValueError:
-        res = float(string[start:index])
-    if is_negative:
-        res = 0 - res
-    return res, index
+        raise Exception('Incorrect number format!')
 
 
-def __parse_boolean(string, index):
-    if string[index: index + 4] == 'true':
-        return True, index + 4
-    elif string[index: index + 5] == 'false':
-        return False, index + 5
+def parse_boolean(element):
+    element = element.lower()
+    if element == 'true':
+        return True
+    elif element == 'false':
+        return False
     else:
-        return None, index
+        raise ValueError('Incorrect Boolean value!')
 
 
-def __parse_undefined(string, index):
-    if string[index: index + 9] == 'undefined':
-        return None, index + 9
+def parse_none(element):
+    element = element.lower()
+    if element == 'undefined' or element == 'null':
+        return None
     else:
-        return None, index
+        raise ValueError('Incorrect None value')
+
+
+def parse_date(element):
+    # TODO in next releases
+    pass
+
